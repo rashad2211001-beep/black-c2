@@ -16,8 +16,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// Initialize Telegram Bot
-const bot = new TelegramBot(config.token, { polling: true });
+// Initialize Telegram Bot (بدون polling عشان نستخدم webhook)
+const bot = new TelegramBot(config.token);
 
 // In-memory storage for connected devices
 const devices = new Map();
@@ -213,6 +213,15 @@ bot.on('callback_query', (query) => {
     } else {
         bot.answerCallbackQuery(query.id, { text: '⚠️ الأمر غير معروف.' });
     }
+});
+
+// --- Webhook Setup ---
+const webhookUrl = `${config.host}/bot${config.token}`;
+app.use(bot.webhookCallback(`/bot${config.token}`));
+bot.setWebHook(webhookUrl).then(() => {
+    console.log(`Webhook set successfully to: ${webhookUrl}`);
+}).catch((err) => {
+    console.error(`Webhook error: ${err.message}`);
 });
 
 // --- Start Server ---
